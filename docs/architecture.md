@@ -6,8 +6,10 @@
 2. **Existing ChatBridge**: queue, durable result, exact owner, result version, controller acceptance, ChatGPT Web target, error/recovery policy.
 3. **Worker Chat**: performs bounded work using its actual connected permissions.
 4. **Reason Network**: optional active notification into a named *Codex* session, using stdin body and normal `send` (not `--fyi`).
-5. **ChatBridge Lite**: presentation/admission adapter + private attempt ledger; it is not a second authoritative control plane.
-6. **Luna Max or another independently scheduled monitor**: checks age/progress every configured interval and may request guarded same-task recovery. It does not claim a successful result from UI appearance alone.
+5. **Remote Desktop Commander (recommended local access connector)**: connects ChatGPT to an explicitly paired local device for authorized filesystem/terminal tasks. It is not the browser-dispatch runtime.
+6. **Ego Lite / `ego-browser`**: the current ChatGPT Web dispatch runtime used by the existing Bridge; Remote Desktop Commander does not replace it in this alpha.
+7. **ChatBridge Lite**: presentation/admission adapter + private attempt ledger; it is not a second authoritative control plane.
+8. **Luna Max or another independently scheduled monitor**: checks age/progress every configured interval and may request guarded same-task recovery. It does not claim a successful result from UI appearance alone.
 
 ## Wire contracts
 

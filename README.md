@@ -49,12 +49,19 @@ This **alpha still requires an installed compatible ChatBridge** for task queue 
 
 - Python 3.10+ on the host running this CLI.
 - Installed and configured `chat-bridge` CLI (same host) and a verified ChatGPT Project/worker session.
-- **Ego Lite** with the supported `ego-browser` runtime and an already signed-in ChatGPT account.
+- **Current browser dispatcher:** Ego Lite with the supported `ego-browser` runtime and an already signed-in ChatGPT account. Remote Desktop Commander provides local-computer tools but does **not** replace `ego-browser` in this alpha.
 - For the **Codex controller**: configured [Reason Network](https://reasonmachines.com/) on the host and a *known exact* `person/session` recipient that owns the job.
-- The worker Chat must have a user-authorized way to reach the same machine (e.g. a connected ChatGPT Computer or Remote Desktop Commander plugin); verify its host and tool permissions inside ChatGPT.
+- **Recommended local-computer connection for the worker Chat:** [Remote Desktop Commander](https://github.com/desktop-commander/remote-desktop-commander) — simpler hosted remote-MCP onboarding for filesystem/terminal access; see [setup guide](docs/REMOTE-SETUP.md). Verify the exact device and permissions in ChatGPT before running commands.
+- **Advanced alternative:** [chatgpt-open-remote-mcp](https://github.com/luxiaolei/chatgpt-open-remote-mcp) is a separate Linux-focused MCP server with explicit grants and OpenAI Secure MCP Tunnel setup; it is more involved and is not a drop-in replacement for Ego Lite.
 - Browser Use / Chrome automation is an optional future adapter. Its presence does not make it a drop-in equivalent of Ego Lite's verified runtime.
 
 Do not enter login passwords, browser cookies, API tokens or private message addresses in a public repository, screenshot, GitHub Issue or example file.
+
+## Connect ChatGPT to your computer (recommended first)
+
+Start with [Remote Desktop Commander](docs/REMOTE-SETUP.md). It pairs a small local agent with a hosted remote MCP connection and is usually less setup than maintaining a custom computer-control MCP server. Usage limits and paid tiers may apply; verify the current plan/limits in the [dashboard](https://mcp.desktopcommander.app/) before relying on frequent or unattended calls. Do not assume a free quota or price from this repository.
+
+Keep the layers distinct: Remote Desktop Commander gives the worker Chat access to the authorized machine; **this alpha still uses Ego Lite / `ego-browser` for its existing ChatGPT Web dispatch runtime**. The custom [chatgpt-open-remote-mcp](https://github.com/luxiaolei/chatgpt-open-remote-mcp) path is a more advanced, Linux-focused option.
 
 ## Install and discover
 

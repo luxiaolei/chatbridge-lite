@@ -28,11 +28,12 @@ def read_message(args: argparse.Namespace) -> str:
 def doctor(args: argparse.Namespace) -> int:
     checks = {x: bool(shutil.which(name)) for x, name in (("bridge", args.bridge_bin), ("reason_network", args.reason_bin), ("ego_browser", args.ego_bin))}
     emit(ok=checks["bridge"] and checks["ego_browser"], dependencies=checks,
-         guidance=["Connect an authorized local-computer plugin in ChatGPT (ChatGPT Computer or Remote Desktop Commander); verify machine identity.",
-                   "Install and sign in to Ego Lite for the verified ChatGPT account; use its supported ego-browser runtime.",
-                   "Browser Use can be a separately validated alternative, not an assumed compatible replacement.",
+         guidance=["Recommended local-computer connector: Remote Desktop Commander. Pair the device and connect the ChatGPT app; see https://github.com/desktop-commander/remote-desktop-commander and docs/REMOTE-SETUP.md.",
+                   "This alpha still requires Ego Lite / ego-browser for ChatGPT Web dispatch; Remote Desktop Commander does not replace that runtime.",
+                   "Advanced Linux-focused alternative: https://github.com/luxiaolei/chatgpt-open-remote-mcp (Secure MCP Tunnel and explicit grants require extra setup).",
+                   "Browser Use can be evaluated separately, but is not a validated drop-in replacement.",
                    "For Codex-controller mode also install and configure Reason Network on the receiving machine.",
-                   "Plugin connection/permission status must be verified inside ChatGPT; a local executable check cannot prove it."])
+                   "Verify the exact paired host and plugin permissions in ChatGPT; a local executable check cannot prove remote connectivity. Check current Remote Desktop Commander usage limits/pricing in its dashboard."])
     return 0 if checks["bridge"] and checks["ego_browser"] else 2
 
 

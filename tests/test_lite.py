@@ -1,3 +1,4 @@
+import argparse
 import contextlib
 import io
 import json
@@ -73,6 +74,15 @@ class MonitorTests(unittest.TestCase):
 
 
 class CLITests(unittest.TestCase):
+    def test_doctor_recommends_remote_desktop_commander_but_keeps_ego_lite_boundary(self):
+        buf = io.StringIO()
+        args = argparse.Namespace(bridge_bin='chat-bridge', reason_bin='reason-network', ego_bin='ego-browser')
+        with patch('chatbridge_lite.cli.shutil.which', return_value='/fake/bin/tool'), contextlib.redirect_stdout(buf):
+            self.assertEqual(cli.doctor(args), 0)
+        data = json.loads(buf.getvalue())
+        self.assertIn('Remote Desktop Commander', data['guidance'][0])
+        self.assertIn('does not replace', data['guidance'][1])
+
     def run_cli(self, args):
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
