@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "chatbridge-lite"
+version = "0.1.0a0"
+description = "Small, safety-first ChatGPT Web worker bridge with durable callbacks"
+requires-python = ">=3.10"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [{name = "ChatBridge Lite contributors"}]
+dependencies = []
+
+[project.scripts]
+cblite = "chatbridge_lite.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
