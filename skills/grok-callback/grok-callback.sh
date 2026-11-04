@@ -5,13 +5,17 @@
 # and are never printed. Never run this script with `bash -x`.
 #
 # Usage:
-#   grok-callback.sh --repo OWNER/REPO --ref pr:123|issue:45|123 [--kind pr|issue] \
-#       --status 交付|阻塞|进度|测试 --link URL --note TEXT [--dry-run]
+#   grok-callback.sh --repo OWNER/REPO --status 交付|阻塞|进度|测试 --note TEXT \
+#       [--ref pr:123|issue:45|123 [--kind pr|issue]] [--link URL] [--dry-run]
+#   (--ref / --link may be omitted; kind/number/link are then null in the JSON)
 #
+# Auth header: GROK_WEBHOOK_AUTH_HEADER from the secrets file (full line,
+#   'Authorization: Bearer <key>') is used first; otherwise it falls back to
+#   'Authorization: Bearer $GROK_WEBHOOK_KEY'.
 # Env overrides (optional, non-secret):
 #   GROK_WEBHOOK_ENV     path of the secrets file (default ~/hz-secrets/grok-webhook.env)
-#   GROK_WEBHOOK_HEADER  header name for the key (default Authorization, sent as "Bearer <key>")
-#                        if set to anything else, the raw key is sent as that header's value.
+#   GROK_WEBHOOK_HEADER  header name used only in the GROK_WEBHOOK_KEY fallback (default
+#                        Authorization, value "Bearer <key>"; any other name gets the raw key).
 #
 # Exit: 0 on HTTP 2xx (or a successful --dry-run), 1 otherwise.
 set -euo pipefail
@@ -21,7 +25,7 @@ ENV_FILE="${GROK_WEBHOOK_ENV:-$HOME/hz-secrets/grok-webhook.env}"
 HEADER_NAME="${GROK_WEBHOOK_HEADER:-Authorization}"
 
 die() { echo "grok-callback: $*" >&2; exit 1; }
-usage() { sed -n '6,9p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 1; }
+usage() { sed -n '6,10p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 1; }
 
 repo="" ref="" kind="" status="" link="" note="" dry=0
 while [ $# -gt 0 ]; do
@@ -38,25 +42,30 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-[ -n "$repo" ] && [ -n "$ref" ] && [ -n "$status" ] && [ -n "$link" ] && [ -n "$note" ] || usage
-case "$ref" in
-  pr:*|issue:*) kind="${ref%%:*}"; number="${ref#*:}" ;;
-  *) number="$ref" ;;
-esac
-[ -n "$kind" ] || die "--kind pr|issue is required when --ref is a bare number"
-case "$kind" in pr|issue) ;; *) die "kind must be pr or issue" ;; esac
-case "$number" in ''|*[!0-9]*) die "ref number must be an integer" ;; esac
+[ -n "$repo" ] && [ -n "$status" ] && [ -n "$note" ] || usage
+number=""
+if [ -n "$ref" ]; then
+  case "$ref" in
+    pr:*|issue:*) kind="${ref%%:*}"; number="${ref#*:}" ;;
+    *) number="$ref" ;;
+  esac
+  [ -n "$kind" ] || die "--kind pr|issue is required when --ref is a bare number"
+  case "$kind" in pr|issue) ;; *) die "kind must be pr or issue" ;; esac
+  case "$number" in ''|*[!0-9]*) die "ref number must be an integer" ;; esac
+fi
 case "$status" in 交付|阻塞|进度|测试) ;; *) die "status must be 交付|阻塞|进度|测试" ;; esac
 command -v jq >/dev/null || die "jq not found"
 command -v curl >/dev/null || die "curl not found"
 
 sent_at="$(TZ=Asia/Shanghai date '+%Y-%m-%dT%H:%M:%S+08:00')"
 host="$(hostname -s 2>/dev/null || hostname)"
-body="$(jq -n --arg repo "$repo" --arg kind "$kind" --argjson number "$number" \
+body="$(jq -n --arg repo "$repo" --arg kind "$kind" --arg number "$number" \
   --arg status "$status" --arg link "$link" --arg note "$note" \
   --arg sent_at "$sent_at" --arg host "$host" \
-  '{source:"chatgpt-chat", repo:$repo, kind:$kind, number:$number, status:$status,
-    link:$link, note:$note, sent_at:$sent_at, host:$host}')"
+  'def nn: if . == "" then null else . end;
+   {source:"chatgpt-chat", repo:$repo, kind:($kind|nn),
+    number:(if $number == "" then null else ($number|tonumber) end), status:$status,
+    link:($link|nn), note:$note, sent_at:$sent_at, host:$host}')"
 
 check_env_file() {
   [ -f "$ENV_FILE" ] || die "secrets file missing: $ENV_FILE"
@@ -87,25 +96,31 @@ code="$(
   set +x
   set -a; . "$ENV_FILE" >/dev/null 2>&1; set +a
   [ -n "${GROK_WEBHOOK_URL:-}" ] || { echo "nourl"; exit 0; }
-  [ -n "${GROK_WEBHOOK_KEY:-}" ] || { echo "nokey"; exit 0; }
-  k="${GROK_WEBHOOK_KEY#Bearer }"           # tolerate a pasted full header value
-  k="${k#Authorization: Bearer }"
-  case "$k$GROK_WEBHOOK_URL" in *\"*|*\\*|*$'\n'*) echo "badchars"; exit 0 ;; esac
-  if [ "$HEADER_NAME" = "Authorization" ]; then hv="Bearer $k"; else hv="$k"; fi
+  if [ -n "${GROK_WEBHOOK_AUTH_HEADER:-}" ]; then
+    hl="$GROK_WEBHOOK_AUTH_HEADER"
+  else
+    [ -n "${GROK_WEBHOOK_KEY:-}" ] || { echo "nokey"; exit 0; }
+    k="${GROK_WEBHOOK_KEY#Bearer }"           # tolerate a pasted full header value
+    k="${k#Authorization: Bearer }"
+    if [ "$HEADER_NAME" = "Authorization" ]; then hl="Authorization: Bearer $k"; else hl="$HEADER_NAME: $k"; fi
+  fi
+  case "$hl" in *:*) ;; *) echo "badheader"; exit 0 ;; esac
+  case "$hl$GROK_WEBHOOK_URL" in *\"*|*\\*|*$'\n'*|*$'\r'*) echo "badchars"; exit 0 ;; esac
   # URL and header go via stdin config so they never appear in `ps`.
-  printf 'url = "%s"\nheader = "%s: %s"\n' "$GROK_WEBHOOK_URL" "$HEADER_NAME" "$hv" |
+  printf 'url = "%s"\nheader = "%s"\n' "$GROK_WEBHOOK_URL" "$hl" |
     curl -sS -o /dev/null -w '%{http_code}' --max-time 20 -X POST \
       -H 'Content-Type: application/json' --data-binary @"$tmp" -K - 2>/dev/null || echo "000"
 )"
 
 case "$code" in
   nourl) die "GROK_WEBHOOK_URL not set in $ENV_FILE" ;;
-  nokey) die "GROK_WEBHOOK_KEY not set in $ENV_FILE" ;;
+  nokey) die "neither GROK_WEBHOOK_AUTH_HEADER nor GROK_WEBHOOK_KEY set in $ENV_FILE" ;;
+  badheader) die "GROK_WEBHOOK_AUTH_HEADER must look like 'Name: value'" ;;
   badchars) die "URL/key contains unsupported characters (quote/backslash/newline)" ;;
 esac
 code="${code: -3}"
 echo "HTTP $code"
 case "$code" in
-  2??) echo "ok: Grok webhook accepted ($status $kind#$number)"; exit 0 ;;
+  2??) echo "ok: Grok webhook accepted ($status${kind:+ $kind#$number})"; exit 0 ;;
   *)   echo "failed: webhook did not accept the callback"; exit 1 ;;
 esac

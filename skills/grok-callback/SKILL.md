@@ -38,9 +38,9 @@ Arguments:
 | Arg | Meaning |
 | --- | --- |
 | `--repo` | `owner/name` of the repository |
-| `--ref` | `pr:<n>` or `issue:<n>`; a bare `<n>` needs `--kind pr\|issue` |
+| `--ref` | optional; `pr:<n>` or `issue:<n>`; a bare `<n>` needs `--kind pr\|issue` |
 | `--status` | `交付` / `阻塞` / `进度` / `测试` |
-| `--link` | URL of the PR (or Issue) |
+| `--link` | optional; URL of the PR (or Issue) |
 | `--note` | one sentence: what was delivered, or what is blocking |
 | `--dry-run` | print body + masked target, do not send |
 
@@ -60,11 +60,13 @@ JSON body POSTed to the webhook:
 }
 ```
 
-The key is sent as `Authorization: Bearer <key>` (Grok Bot routine webhook format). `GROK_WEBHOOK_HEADER` can override the header name if that ever changes. Exit code 0 means HTTP 2xx: Grok accepted the call and started a run, not that it finished.
+Omitted `--ref` / `--link` become `null` for `kind`, `number` and `link`.
+
+Auth: the request header is read from `GROK_WEBHOOK_AUTH_HEADER` in the secrets file — the full header line in the form `Authorization: Bearer <key>` (Grok Bot routine webhook format, as copied from the routine panel's *header* field). If it is absent, the script falls back to `Authorization: Bearer $GROK_WEBHOOK_KEY` (`GROK_WEBHOOK_HEADER` can rename the header in that fallback only). Exit code 0 means HTTP 2xx: Grok accepted the call and started a run, not that it finished.
 
 ## Secrets
 
-- URL and key live only in `~/hz-secrets/grok-webhook.env` on xlmini (`GROK_WEBHOOK_URL=…`, `GROK_WEBHOOK_KEY=…`, mode 600). The user copies them from the routine panel.
+- URL and key live only in `~/hz-secrets/grok-webhook.env` on xlmini (`GROK_WEBHOOK_URL=…`, `GROK_WEBHOOK_AUTH_HEADER='Authorization: Bearer …'`, optional `GROK_WEBHOOK_KEY=…`; mode 600). The user copies them from the routine panel.
 - Never `cat`, `echo`, `grep` the values, run the script with `bash -x`, or paste them into the chat, a PR, an Issue, a commit or a log. The script refuses to run if the file is not mode 600, passes the URL and header to curl over stdin (not visible in `ps`), and only prints the HTTP code.
 
 ## GitHub fallback
@@ -74,6 +76,7 @@ Grok also listens for `pr-opened` and `issue-assigned` on the watched repositori
 ## Failure handling
 
 - Non-2xx (or `HTTP 000` = network error): wait a few seconds and retry **once**.
+- `--ref`/`--link` are optional but should always be given for 交付/阻塞 so Grok can open the PR directly.
 - Still failing: add a PR comment such as `回调失败 HTTP <code>，依赖 GitHub 兜底通知`, and stop. Do not loop. 401 usually means the key was rotated; 400 means the routine is paused — both need the user, not retries.
 
 ## Don'ts
