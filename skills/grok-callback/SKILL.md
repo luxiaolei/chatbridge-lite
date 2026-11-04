@@ -9,6 +9,9 @@ Use this in a ChatGPT Chat worker that is connected to the user's Mac mini
 (xlmini) through Remote Desktop Commander. There are two channels: a webhook
 (primary, fast) and a GitHub PR listener (fallback, always on).
 
+**任务状态以 PR/Issue 为准。** The webhook is only a notification; it does not
+record or change task state.
+
 ## Which one to use
 
 | Situation | Do |
@@ -24,7 +27,7 @@ Commander); the script POSTs JSON to the Grok routine's webhook.
 
 ### Secrets
 
-- Read **only** from `~/hz-secrets/grok-webhook.env` on xlmini (mode 600; the script refuses any other mode). The user copies the values from the routine panel.
+- Read **only** from `~/hz-secrets/grok-webhook.env` on xlmini (mode 600; the script refuses any other mode). `GROK_WEBHOOK_ENV` may override the path, but only to a file that resolves inside `~/hz-secrets/`. The user copies the values from the routine panel.
 - Variables (names only — never write the values anywhere):
   - `GROK_WEBHOOK_URL` — the routine's "POST to" URL.
   - `GROK_WEBHOOK_AUTH_HEADER` — the full header line, format `Authorization: Bearer <key>`. Used first.
@@ -87,12 +90,14 @@ Commander); the script POSTs JSON to the Grok routine's webhook.
 
 The script prints `HTTP <code>` and one line; exit 0 on 2xx, 1 otherwise.
 **HTTP 200 only means Grok accepted the call and started a run** — not that it
-finished or agreed. Typical failures: 401 = key rotated/wrong, 400 = routine
-paused; both need the user, not more retries. `HTTP 000` = network error.
+finished or agreed. Typical failures (**未核实** — observed by third parties,
+not confirmed in official docs): 401 = key rotated/wrong, 400 = routine paused;
+both need the user, not more retries. `HTTP 000` = network error.
 
 ## 2. Fallback: GitHub PR listener
 
-Grok listens (GitHub account `luxiaolei`) on:
+The fallback covers **only these two repositories** — a PR opened anywhere else
+does not wake Grok. Grok listens (GitHub account `luxiaolei`) on:
 
 - `luxiaolei/huazhuo-runtime`
 - `luxiaolei/huazhuo-blueprint`
