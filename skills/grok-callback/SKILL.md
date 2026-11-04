@@ -1,87 +1,123 @@
 ---
 name: grok-callback
-description: When a ChatGPT Chat worker finishes a task, gets blocked, or reaches a milestone, open a Draft PR and wake the Grok Bot controller through its routine webhook from xlmini.
+description: When a ChatGPT Chat worker finishes a task, gets blocked, or reaches a milestone, notify the Grok Bot controller — primarily through its routine webhook from xlmini, with a GitHub Draft PR as the fallback wake-up.
 ---
 
 # Grok callback (ChatGPT Chat → Grok Bot)
 
 Use this in a ChatGPT Chat worker that is connected to the user's Mac mini
-(xlmini) through Remote Desktop Commander.
+(xlmini) through Remote Desktop Commander. There are two channels: a webhook
+(primary, fast) and a GitHub PR listener (fallback, always on).
 
-## When to use
+## Which one to use
 
-- **交付 (delivered):** the task is done and the result is in a PR.
-- **阻塞 (blocked):** you cannot continue without a decision, an access grant or a fix outside your reach.
-- **进度 (progress):** a meaningful stage is finished and the controller should know before the end.
-- **测试 (test):** only for wiring tests.
+| Situation | Do |
+| --- | --- |
+| Normal delivery (交付) or blocked (阻塞) | **Both**: open the Draft PR first, then run the script. |
+| Remote desktop unavailable, or the script still fails after one retry | **PR fallback only**, and state 「回调失败 HTTP <code>」 in the PR body or a PR comment. |
+| Progress report only, no PR needed | **Script only**, with `--status 进度`. |
 
-## Steps
+## 1. Primary: routine webhook
 
-1. **Open a Draft PR first. Always.**
-   - Title starts with the Issue number: `#123 <short summary>`.
-   - When blocked, add 「阻塞」: `#123 阻塞 <short summary>`, and write in the body exactly what is blocking, what you tried, and what decision you need.
-   - `gh pr create --draft --title "#123 …" --body "…"`. Never force push; never merge.
-2. **Then wake Grok** by running on xlmini (via Remote Desktop Commander):
+ChatGPT runs `~/agent-tools/grok-callback.sh` on xlmini (via Remote Desktop
+Commander); the script POSTs JSON to the Grok routine's webhook.
 
-   ```bash
-   ~/agent-tools/grok-callback.sh --repo OWNER/REPO --ref pr:<PR number> \
-     --status 交付|阻塞|进度 --link <PR URL> --note "<one sentence>"
-   ```
+### Secrets
 
-   Optionally preview first with `--dry-run` (prints the JSON body and the target host with the path masked; sends nothing).
-3. Report the script's output (`HTTP <code>` + one line) in the chat. Nothing else from the environment.
+- Read **only** from `~/hz-secrets/grok-webhook.env` on xlmini (mode 600; the script refuses any other mode). The user copies the values from the routine panel.
+- Variables (names only — never write the values anywhere):
+  - `GROK_WEBHOOK_URL` — the routine's "POST to" URL.
+  - `GROK_WEBHOOK_AUTH_HEADER` — the full header line, format `Authorization: Bearer <key>`. Used first.
+  - `GROK_WEBHOOK_KEY` — the bare key; fallback, sent as `Authorization: Bearer <key>` when `GROK_WEBHOOK_AUTH_HEADER` is absent.
+- Never `cat`/`echo`/`grep` the values, never run the script with `bash -x`, and never paste them into the chat, a PR, an Issue, a commit or a log. The script passes the URL and header to curl over stdin (not visible in `ps`) and only prints the HTTP code.
 
-## Message format
+### Command
 
-Arguments:
+```bash
+# delivered / blocked: point at the Draft PR
+~/agent-tools/grok-callback.sh --repo luxiaolei/huazhuo-runtime --ref pr:123 \
+  --status 交付 --link https://github.com/luxiaolei/huazhuo-runtime/pull/123 \
+  --note "#45 完成，等待验收"
+
+# progress only (no PR)
+~/agent-tools/grok-callback.sh --repo luxiaolei/huazhuo-runtime --ref issue:45 \
+  --status 进度 --note "调研完成一半，明早交付"
+
+# preview: prints the JSON body and the target host with the path masked; sends nothing
+~/agent-tools/grok-callback.sh ... --dry-run
+```
 
 | Arg | Meaning |
 | --- | --- |
-| `--repo` | `owner/name` of the repository |
+| `--repo` | required; `owner/name` |
+| `--status` | required; `交付` / `阻塞` / `进度` / `测试` |
+| `--note` | required; one sentence: what was delivered, or what is blocking |
 | `--ref` | optional; `pr:<n>` or `issue:<n>`; a bare `<n>` needs `--kind pr\|issue` |
-| `--status` | `交付` / `阻塞` / `进度` / `测试` |
-| `--link` | optional; URL of the PR (or Issue) |
-| `--note` | one sentence: what was delivered, or what is blocking |
+| `--link` | optional; PR (or Issue) URL — always give it for 交付/阻塞 |
 | `--dry-run` | print body + masked target, do not send |
 
-JSON body POSTed to the webhook:
+### JSON body
 
 ```json
 {
   "source": "chatgpt-chat",
-  "repo": "owner/name",
+  "repo": "luxiaolei/huazhuo-runtime",
   "kind": "pr",
   "number": 123,
   "status": "交付",
-  "link": "https://github.com/owner/name/pull/123",
+  "link": "https://github.com/luxiaolei/huazhuo-runtime/pull/123",
   "note": "one sentence",
   "sent_at": "2026-11-04T22:30:00+08:00",
   "host": "xlmini"
 }
 ```
 
-Omitted `--ref` / `--link` become `null` for `kind`, `number` and `link`.
+| Field | Meaning |
+| --- | --- |
+| `source` | always `chatgpt-chat` |
+| `repo` | from `--repo` |
+| `kind` / `number` | from `--ref`; `null` when omitted |
+| `status` | from `--status` |
+| `link` | from `--link`; `null` when omitted |
+| `note` | from `--note` |
+| `sent_at` | send time, ISO 8601, `+08:00` |
+| `host` | short hostname of the sender |
 
-Auth: the request header is read from `GROK_WEBHOOK_AUTH_HEADER` in the secrets file — the full header line in the form `Authorization: Bearer <key>` (Grok Bot routine webhook format, as copied from the routine panel's *header* field). If it is absent, the script falls back to `Authorization: Bearer $GROK_WEBHOOK_KEY` (`GROK_WEBHOOK_HEADER` can rename the header in that fallback only). Exit code 0 means HTTP 2xx: Grok accepted the call and started a run, not that it finished.
+### Result
 
-## Secrets
+The script prints `HTTP <code>` and one line; exit 0 on 2xx, 1 otherwise.
+**HTTP 200 only means Grok accepted the call and started a run** — not that it
+finished or agreed. Typical failures: 401 = key rotated/wrong, 400 = routine
+paused; both need the user, not more retries. `HTTP 000` = network error.
 
-- URL and key live only in `~/hz-secrets/grok-webhook.env` on xlmini (`GROK_WEBHOOK_URL=…`, `GROK_WEBHOOK_AUTH_HEADER='Authorization: Bearer …'`, optional `GROK_WEBHOOK_KEY=…`; mode 600). The user copies them from the routine panel.
-- Never `cat`, `echo`, `grep` the values, run the script with `bash -x`, or paste them into the chat, a PR, an Issue, a commit or a log. The script refuses to run if the file is not mode 600, passes the URL and header to curl over stdin (not visible in `ps`), and only prints the HTTP code.
+## 2. Fallback: GitHub PR listener
 
-## GitHub fallback
+Grok listens (GitHub account `luxiaolei`) on:
 
-Grok also listens for `pr-opened` and `issue-assigned` on the watched repositories. Even if the callback never goes out, opening the Draft PR wakes Grok — this is why step 1 is mandatory. The callback is only a faster, richer notification.
+- `luxiaolei/huazhuo-runtime`
+- `luxiaolei/huazhuo-blueprint`
+
+for the events **`pr-opened`** and **`issue-assigned`**.
+
+On delivery, open a Draft PR:
+
+- Title starts with the Issue number: `#123 <short summary>`.
+- When blocked, add 「阻塞」: `#123 阻塞 <short summary>`, and write in the body exactly what is blocking, what you tried, and what decision you need.
+- `gh pr create --draft --title "#123 …" --body "…"`
+
+Limits of this channel:
+
+- The routine does **not** receive repo-wide issue comments: commenting on an Issue alone will **not** wake Grok.
+- Pushing new commits to an existing PR does **not** trigger it either. Only **opening a new PR** or **assigning an Issue** wakes Grok.
 
 ## Failure handling
 
-- Non-2xx (or `HTTP 000` = network error): wait a few seconds and retry **once**.
-- `--ref`/`--link` are optional but should always be given for 交付/阻塞 so Grok can open the PR directly.
-- Still failing: add a PR comment such as `回调失败 HTTP <code>，依赖 GitHub 兜底通知`, and stop. Do not loop. 401 usually means the key was rotated; 400 means the routine is paused — both need the user, not retries.
+1. Non-2xx from the script: wait a few seconds and retry **once**.
+2. Still failing: rely on the PR fallback — the Draft PR must exist — and add `回调失败 HTTP <code>，依赖 GitHub 兜底通知` to the PR body or a PR comment. Do not loop.
 
 ## Don'ts
 
-- No force push, no merge, no rewriting pushed history.
-- No secrets anywhere outside the secrets file.
+- No force push, no rebase of pushed history, no merge.
+- No secrets anywhere outside `~/hz-secrets/grok-webhook.env`.
 
 `grok-callback.sh` in this folder is a copy of `~/agent-tools/grok-callback.sh` (no secrets inside). Install: `install -m 700 skills/grok-callback/grok-callback.sh ~/agent-tools/`.
